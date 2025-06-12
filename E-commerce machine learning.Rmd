@@ -1,0 +1,1575 @@
+---
+title: "E-commerce Machine learning Project"
+output: html_document
+date: "2024-12-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+install.packages("tidyverse")
+install.packages("lubridate")
+install.packages("readr")
+# Install these packages if needed
+```
+
+
+```{r}
+library(tidyverse) # contains packages like dplyr and ggplot for data manipulation and plotting 
+library(lubridate)  # For easier dates and times manipulation
+library(readr)  # For reading the CSV files
+```
+
+## Set the working directory and read the relevant csvs 
+
+```{r}
+## First download the 2 datasets from kaggle: https://www.kaggle.com/datasets/yusufdelikkaya/online-sales-dataset (dataset #1) and https://www.kaggle.com/datasets/asaniczka/amazon-uk-products-dataset-2023 (dataset #2) 
+
+### Create a folder to store these 2 datasets and set the working directory to that folder (optional) before continuing on or set the working directory to where the 2 datasets are regardless of having a folder or not but they must be in the same location for it to work
+
+## Read/ load the datasets for data processing and machine learning 
+dfonline_sales <- read.csv("online_sales_dataset.csv") # dataset #1
+dfuk <- read.csv("amz_uk_processed_data.csv") # dataset #2
+```
+
+
+
+----------------------------------------------------------------------------------------------------------------
+# Preparing the dataset #1 (dfonline_sales) for prediction models  
+
+## Firstly, we view and then remove any NaN values in dfonline_sales
+```{r}
+
+# Check the structure and summary of dfonline_sales
+str(dfonline_sales)
+summary(dfonline_sales)
+
+# Check for missing values in dfonline_sales
+colSums(is.na(dfonline_sales))
+
+```
+## Cleaning out dfonline_sales 
+
+```{r}
+# Clean and filter dfonline_sales by removing unnecessary variables 
+dfonline_sales_cleaned <- dfonline_sales %>% select(-c(InvoiceNo, StockCode, CustomerID, Description, InvoiceDate, ShipmentProvider, WarehouseLocation)) %>%
+  
+# Remove any rows with missing or NA values 
+drop_na() 
+  
+  
+# Check the cleaned dataset
+head(dfonline_sales_cleaned)
+``` 
+## Doing a deeper check into the Quantity column of dfonline_sales_cleaned
+
+```{r}
+# Filter rows where Quantity is negative and display relevant columns (If there's none we can move on) 
+negative_quantity_rows <- dfonline_sales_cleaned %>%
+  filter(Quantity < 0) %>%
+  select( Quantity, UnitPrice, Discount, ReturnStatus)
+
+# View the filtered rows
+print(negative_quantity_rows)
+```
+
+
+# Before we continue with dfonline_sales_cleaned EDA, we have to convert their $$ columns to be in USD
+
+## Finding all countries in the data
+
+```{r}
+# Check the unique countries in the 'Country' column
+unique_countries <- unique(dfonline_sales_cleaned$Country)
+
+# Print the list of unique countries
+print(unique_countries)
+```
+
+## Mapping of countries to their currency code
+```{r}
+# Mapping countries to their respective currency codes
+country_to_currency <- c(
+  "Australia" = "AUD",
+  "Spain" = "EUR",
+  "Germany" = "EUR",
+  "Netherlands" = "EUR",
+  "Sweden" = "SEK",
+  "Belgium" = "EUR",
+  "Norway" = "NOK",
+  "Italy" = "EUR",
+  "United Kingdom" = "GBP",
+  "Portugal" = "EUR",
+  "France" = "EUR",
+  "United States" = "USD"
+)
+# Map country names to currency codes and create a new column for currency codes
+dfonline_sales_cleaned$CurrencyCode <- country_to_currency[dfonline_sales_cleaned$Country]
+```
+
+
+## Changing the prices in the UnitPrice, Discount, ShippingCost columns to be in USD
+```{r}
+# Define exchange rates at the time of processing the data (Currency Code to USD) (exhange rate can be subjected to change on a daily basis)
+exchange_rates <- c(
+  "AUD" = 0.6305,
+  "EUR" = 1.04,
+  "SEK" = 0.091,
+  "GBP" = 1.25,
+  "NOK" = 0.089,
+  "USD" = 1
+)
+# Function to convert price to USD based on currency code
+convert_to_usd <- function(price, currency) {
+  # Check if the currency is in the exchange rates list
+  if (!is.na(currency) && currency %in% names(exchange_rates)) {
+    # Convert price to USD
+    return(price * exchange_rates[currency])
+  } else {
+    # Return NA if currency is not in the exchange rates list
+    return(NA)
+  }
+}
+
+# Apply the conversion function to each price-related column
+dfonline_sales_cleaned$UnitPrice_usd <- mapply(convert_to_usd, dfonline_sales_cleaned$UnitPrice, dfonline_sales_cleaned$CurrencyCode)
+dfonline_sales_cleaned$Discount_usd <- mapply(convert_to_usd, dfonline_sales_cleaned$Discount, dfonline_sales_cleaned$CurrencyCode)
+dfonline_sales_cleaned$ShippingCost_usd <- mapply(convert_to_usd, dfonline_sales_cleaned$ShippingCost, dfonline_sales_cleaned$CurrencyCode)
+```
+
+## Checking if there are any NaN values
+```{r}
+# Check for NA values in the new columns
+sum(is.na(dfonline_sales_cleaned$UnitPrice_usd))
+sum(is.na(dfonline_sales_cleaned$Discount_usd))
+sum(is.na(dfonline_sales_cleaned$ShippingCost_usd))
+sum(is.na(dfonline_sales_cleaned$TotalPrice_usd))
+```
+
+---------------------------------------------------------------------------------------------------------------
+# dfonline_sales_cleaned EDA
+
+## Viewing the summary statistic table (median, max, min etc )
+```{r}
+# View structure of the dataset
+str(dfonline_sales_cleaned)
+
+# Summary statistics
+summary(dfonline_sales_cleaned)
+```
+
+## Further cleaning of dfonline_sales_cleaned 
+```{r}
+# Removing the old price related columns to prevent unreliable predictions
+dfonline_sales_cleaned <- dfonline_sales_cleaned %>%
+  select(-UnitPrice, -Discount, -ShippingCost, -CurrencyCode)
+
+# View structure of the dataset
+str(dfonline_sales_cleaned)
+```
+
+
+
+## Bar plot for Country
+```{r}
+ggplot(dfonline_sales_cleaned, aes(x = Country)) +
+  geom_bar(fill = "powderblue", color = "black") +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5, color = "black", size = 3) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Transaction Frequency by Country", x = "Country", y = "Count")
+```
+
+## Correlation heatmap
+```{r}
+num_cols <- dfonline_sales_cleaned[, sapply(dfonline_sales_cleaned, is.numeric)]
+corr_matrix <- round(cor(num_cols, use = "complete.obs"), 2)
+corr_melt <- melt(corr_matrix)
+
+ggplot(corr_melt, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = value), color = "black", size = 4) +
+  scale_fill_gradient2(low = "red", high = "green", mid = "orange", midpoint = 0, limit = c(-1, 1)) +
+  theme_minimal() +
+  labs(title = "Correlation Heatmap", x = "", y = "")
+``` 
+
+
+
+### Since Quantity has no correlation with any other variables, we deem it irrelevant and will be remove subsequently 
+
+## Boxplot: UnitPrice by Country
+```{r}
+ggplot(dfonline_sales_cleaned, aes(x = Country, y = UnitPrice_usd)) +
+  geom_boxplot(fill = "plum", outlier.color = "cornflowerblue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Unit Price by Country", x = "Country", y = "Unit Price (USD)")
+```
+
+## Pie chart of sales revenue by each country 
+```{r}
+# Summarise Total Revenue by Country
+revenue_by_country <- dfonline_sales_cleaned %>%
+  group_by(Country) %>%
+  summarise(SalesRevenue = sum((UnitPrice_usd * Quantity) - Discount_usd+ ShippingCost_usd, na.rm = TRUE))
+
+# Calculate the percentage of revenue for each country
+revenue_by_country <- revenue_by_country %>%
+  mutate(Percentage = SalesRevenue / sum(SalesRevenue) * 100)
+
+# Plot a pie chart
+ggplot(revenue_by_country, aes(x = "", y = Percentage, fill = Country)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 4) +
+  labs(title = "Revenue Proportion by Country (in USD)", x = NULL, y = NULL) +
+  theme_void()
+```
+
+## Creating a heatmap of PaymentMethod vs SalesChannel 
+```{r}
+library(ggplot2)
+
+# Create a contingency table
+contingency_table <- table(dfonline_sales_cleaned$PaymentMethod, dfonline_sales_cleaned$SalesChannel)
+
+# Plot heatmap of the contingency table
+ggplot(as.data.frame(as.table(contingency_table)), aes(Var1, Var2, fill = Freq)) +
+  geom_tile() +
+  scale_fill_gradient(low = "grey", high = "blue") +
+  labs(title = "Heatmap of PaymentMethod vs SalesChannel",
+       x = "PaymentMethod", y = "SalesChannel") +
+  theme_minimal()
+
+```
+
+
+
+## Delving deeper into the cateorgical variables to see which ones are of importance and can be turned into numerical variables for unsupervised learning
+
+### EDA to determine whether Category, ReturnStatus, SalesChannel, PaymentMethod and OrderPriority are relevant to be turned to numeric variables
+```{r}
+## Plotting the distibution bar graphs of the 5 variables 
+ggplot(dfonline_sales_cleaned, aes(x = Category)) + 
+  geom_bar(fill = "steelblue", color = "black") +
+  labs(title = "Distribution of Categories", x = "Category", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(dfonline_sales_cleaned, aes(x = ReturnStatus)) + 
+  geom_bar(fill = "steelblue", color = "black") +
+  labs(title = "Distribution of ReturnStatus", x = "ReturnStatus", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(dfonline_sales_cleaned, aes(x = SalesChannel)) + 
+  geom_bar(fill = "steelblue", color = "black") +
+  labs(title = "Distribution of SalesChannel", x = "SalesChannel", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(dfonline_sales_cleaned, aes(x = PaymentMethod)) + 
+  geom_bar(fill = "steelblue", color = "black") +
+  labs(title = "Distribution of PaymentMethod", x = "PaymentMethod", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(dfonline_sales_cleaned, aes(x = OrderPriority)) + 
+  geom_bar(fill = "steelblue", color = "black") +
+  labs(title = "Distribution of OrderPriority", x = "OrderPriority", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+### With ReturnStatus highly skewed to Not Returned we have decided to remove this column all together as the extreme difference could affect our prediction results
+
+
+## From the EDA done previously, Quantity and ReturnStatus will be removed from the dataset as inaccuracies could arise in unsupervised and classification if left unattended too.
+```{r}
+dfonline_sales_cleaned <- dfonline_sales_cleaned %>% select(-Quantity, -ReturnStatus)
+
+```
+
+
+## Changing the rest of the categorical data to numerical through one-hot encoding 
+```{r}
+library(tidyr)
+library(forcats)
+
+# Convert and encode categorical variables
+df_processed <- dfonline_sales_cleaned %>%
+  # Convert variables to appropriate factors
+  mutate(
+    Category = as.factor(Category),  # Convert Category to factor
+    OrderPriority = factor(OrderPriority, levels = c("Low", "Medium", "High"), ordered = TRUE),  # Label encoding for OrderPriority
+    PaymentMethod = as.factor(PaymentMethod),  # Convert PaymentMethod to factor
+    SalesChannel = as.factor(SalesChannel)    # Convert SalesChannel to factor
+  ) %>%
+  # Apply label encoding for OrderPriority
+  mutate(OrderPriority = as.integer(OrderPriority) - 1) %>%  # Convert factor to integers (0 for Low, 1 for Medium, 2 for High)
+  # Apply one-hot encoding for Category, PaymentMethod, and SalesChannel
+  bind_cols(
+    model.matrix(~ Category - 1, data = .) %>% as.data.frame(),
+    model.matrix(~ PaymentMethod + SalesChannel - 1, data = .) %>% as.data.frame()
+  ) %>%
+  # Remove original categorical columns to avoid duplication
+  select(-Category, -PaymentMethod, -SalesChannel)
+
+# Result: `df_processed` now contains all numeric variables, including one-hot-encoded and label-encoded variables.
+
+```
+
+
+## Viewing the df_processed dataset
+```{r}
+## Checking the structure of the dataset to make sure its ready for unsupervised learning 
+str(df_processed)
+```
+
+------------------------------------------------------------------------------------------------------------------
+
+# Using df_processed for unsupervsied learning 
+
+## Loading and or installing relevant packages
+```{r}
+install.packages("h2o") ## If necessary 
+
+library(dplyr)      
+library(ggplot2)     
+library(h2o) 
+```
+
+## Constructing the Principal Component Analysis (PCA)
+
+```{r}
+# To start up the algorithm 
+Sys.setenv(JAVA_HOME = "C:/Program Files/Java/jdk-23")
+```
+
+```{r}
+# Proceed with PCA using the df_processed
+h2o.no_progress()  # Turn off progress bars
+h2o.init(max_mem_size = "3g")  # Set memory allocation according to how big/ small the dataset is 
+
+# Convert the dataset to H2O frame
+df_h2o <- as.h2o(df_processed)
+
+# Selecting numeric columns for PCA (exclude non-numeric ones)
+numeric_columns <- names(df_processed)[sapply(df_processed, is.numeric)]
+
+# Perform PCA on the numeric columns
+pca_result <- h2o.prcomp(df_h2o, 
+                         x = numeric_columns, 
+                         k = 4, 
+                         transform = "STANDARDIZE")  ## Helps to make sure the variables are centered to have mean zero
+
+# Print summary of PCA results
+summary(pca_result)
+
+# Get the principal component scores
+pca_scores <- as.data.frame(h2o.predict(pca_result, df_h2o))
+
+# Randomly sample 20,000 rows for plotting
+set.seed(123)  # Ensure reproducibility
+sample_indices <- sample(1:nrow(pca_scores), size = 40000)
+pca_sample <- pca_scores[sample_indices, ]
+
+# Plot the first 2 PCs
+ggplot(pca_sample, aes(x = PC1, y = PC2)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "PCA -  Plot", x = "PC1", y = "PC2") +
+  theme_minimal()
+
+```
+
+
+## Constructing the k-means clustering 
+
+
+### Constructing the elbow plot
+```{r}
+# Ensure that only numeric columns are selected
+numeric_data <- df_processed %>% 
+  select_if(is.numeric)  # Select all numeric columns from the dataset
+
+# Scale the data (important for k-means)
+df_scaled <- scale(numeric_data)
+
+# Define the range of k (number of clusters)
+ks <- 1:10  # Testing k from 1 to 10
+
+# Calculate the total within-cluster sum of squares for each k
+tot_within_ss <- sapply(ks, function(k) {
+    cl <- kmeans(df_scaled, centers = k, nstart = 10)
+    cl$tot.withinss
+})
+
+# Plot the elbow curve
+plot(ks, tot_within_ss, type = "b", 
+     xlab = "Number of Clusters (k)", 
+     ylab = "Total Within-Cluster Sum of Squares", 
+     main = "Elbow Plot for Optimal k")
+  
+
+```
+```{r}
+# Perform PCA on the scaled data
+pca_result <- prcomp(df_scaled, center = TRUE, scale. = TRUE)
+
+# Get the first two principal components (PC1 and PC2)
+pca_scores <- pca_result$x[, 1:2]
+
+# Run k-means on the PCA scores (PC1 and PC2)
+kmeans_result <- kmeans(pca_scores, centers = 3, nstart = 10)
+
+# Add the cluster labels to the PCA scores for visualization or analysis
+pca_scores_clustered <- cbind(pca_scores, Cluster = kmeans_result$cluster)
+
+# Plot the PCA results with cluster labels
+ggplot(as.data.frame(pca_scores_clustered), aes(x = PC1, y = PC2, color = as.factor(Cluster))) +
+  geom_point(alpha = 0.5) +
+  labs(title = "K-means Clustering on PCA Results", x = "PC1", y = "PC2", color = "Cluster") +
+  theme_minimal()
+
+
+```
+
+
+
+
+## Constructing the Hierarchical clustering
+
+
+### Manhanttan Distance with 4 different linkage methods  (complete, single, average and ward )
+```{r}
+# Step 1: Select numeric columns
+numeric_data <- df_processed %>% 
+  select_if(is.numeric)
+
+# Step 2: Optionally sample the data since it's too large, making visualisation very hard 
+set.seed(12)
+sample_size <- 20000  # Adjust based on your system's capacity
+sample_indices <- sample(1:nrow(numeric_data), size = sample_size)
+sample_data <- numeric_data[sample_indices, ]
+
+# Step 3: Compute distance matrix using Manhattan distance
+d <- dist(sample_data, method = "manhattan")
+
+# Step 4: Perform hierarchical clustering using different linkage methods
+hcl_single <- hclust(d, method = "single")  # Single linkage
+hcl_complete <- hclust(d, method = "complete")  # Complete linkage 
+hcl_average <- hclust(d, method = "average")  # Average linkage
+hcl_ward <- hclust(d, method = "ward.D2")  # Ward's method
+
+# Step 5: Plot the dendrograms for each linkage method
+par(mfrow = c(2, 2))  # To plot 4 dendrograms side by side
+
+# Plot for single linkage
+plot(hcl_single, main = "Single Linkage (Manhattan)", cex = 0.6)
+
+# Plot for complete linkage
+plot(hcl_complete, main = "Complete Linkage (Manhattan)", cex = 0.6)
+
+# Plot for average linkage
+plot(hcl_average, main = "Average Linkage (Manhattan)", cex = 0.6)
+
+# Plot for Ward's method
+plot(hcl_ward, main = "Ward's Linkage (Manhattan)", cex = 0.6)
+
+
+
+```
+
+
+#### Calcuating the average silhouette scores for each method to pick the best linkage method using k = 3 from the elbow plot
+```{r}
+# After performing hierarchical clustering with different methods
+# Cut the tree to create 3 clusters
+clusters_complete <- cutree(hcl_complete, k = 3)
+clusters_single <- cutree(hcl_single, k = 3)
+clusters_average <- cutree(hcl_average, k = 3)
+clusters_ward <- cutree(hcl_ward, k = 3)
+
+# Compute silhouette scores for each
+library(cluster)
+sil_complete <- silhouette(clusters_complete, dist(sample_data))
+sil_single <- silhouette(clusters_single, dist(sample_data))
+sil_average <- silhouette(clusters_average, dist(sample_data))
+sil_ward <- silhouette(clusters_ward, dist(sample_data))
+
+# Get average silhouette scores
+mean(sil_complete[, 3])
+mean(sil_single[, 3])
+mean(sil_average[, 3])
+mean(sil_ward[, 3])
+
+```
+
+
+### The best is the ward's linkage . Hence we will visualise manhattan hierarchical clustering with ward's linkage dendrogram 
+```{r}
+# Cut the hierarchical clustering tree into 3 clusters
+k <- 3
+clusters <- cutree(hcl_ward, k)
+
+# Visualize the dendrogram with color-coded clusters
+plot(hcl_complete, 
+     main = "Ward's Linkage (Manhattan Distance) with 3 Clusters", 
+     xlab = "", 
+     sub = "", 
+     cex = 0.6)
+rect.hclust(hcl_ward, k = 3, border = 2:5)  # Adds colored rectangles for each cluster
+
+```
+
+
+### Euclidean distance with 4 different linkage methods (complete, single, average, ward )
+```{r}
+# Step 1: Select numeric columns
+numeric_data <- df_processed %>% 
+  select_if(is.numeric)
+
+# Step 2: Optionally sample the data if it's too large
+set.seed(12)
+sample_size <- 20000  # Adjust based on your system's capacity
+sample_indices <- sample(1:nrow(numeric_data), size = sample_size)
+sample_data <- numeric_data[sample_indices, ]
+
+# Step 3: Compute distance matrix using Euclidean distance
+d_euclidean <- dist(sample_data, method = "euclidean")  # Use Euclidean distance
+
+# Step 4: Perform hierarchical clustering using different linkage methods with Euclidean distance
+hcl_single_euclidean <- hclust(d_euclidean, method = "single")  # Single linkage with Euclidean
+hcl_complete_euclidean <- hclust(d_euclidean, method = "complete")  # Complete linkage with Euclidean
+hcl_average_euclidean <- hclust(d_euclidean, method = "average")  # Average linkage with Euclidean
+hcl_ward_euclidean <- hclust(d_euclidean, method = "ward.D2")  # Ward's method with Euclidean
+
+# Step 5: Plot the dendrograms for each linkage method with Euclidean distance
+par(mfrow = c(2, 2))  # To plot 4 dendrograms side by side
+
+# Plot for single linkage
+plot(hcl_single_euclidean, main = "Single Linkage (Euclidean)", cex = 0.6)
+
+# Plot for complete linkage
+plot(hcl_complete_euclidean, main = "Complete Linkage (Euclidean)", cex = 0.6)
+
+# Plot for average linkage
+plot(hcl_average_euclidean, main = "Average Linkage (Euclidean)", cex = 0.6)
+
+# Plot for Ward's method
+plot(hcl_ward_euclidean, main = "Ward's Linkage (Euclidean)", cex = 0.6)
+```
+
+
+#### Calcuating the average silhouette scores for each method to pick the best linkage method using k = 3 from the elbow plot
+```{r}
+# After performing hierarchical clustering with different methods using Euclidean distance
+# Cut the tree to create 4 clusters
+clusters_complete_euclidean <- cutree(hcl_complete_euclidean, k = 3)
+clusters_single_euclidean <- cutree(hcl_single_euclidean, k = 3)
+clusters_average_euclidean <- cutree(hcl_average_euclidean, k = 3)
+clusters_ward_euclidean <- cutree(hcl_ward_euclidean, k = 3)
+
+# Compute silhouette scores for each
+library(cluster)
+sil_complete_euclidean <- silhouette(clusters_complete_euclidean, dist(sample_data))
+sil_single_euclidean <- silhouette(clusters_single_euclidean, dist(sample_data))
+sil_average_euclidean <- silhouette(clusters_average_euclidean, dist(sample_data))
+sil_ward_euclidean <- silhouette(clusters_ward_euclidean, dist(sample_data))
+
+# Get average silhouette scores
+mean(sil_complete_euclidean[, 3])
+mean(sil_single_euclidean[, 3])
+mean(sil_average_euclidean[, 3])
+mean(sil_ward_euclidean[, 3])
+
+```
+
+### The best is the average linkage . Hence we will visualise Euclidean hierarchical clustering with average linkage dendrogram 
+
+### Plotting the linkage from each distance metric 
+```{r}
+# Cut the hierarchical clustering tree into 3 clusters
+k <- 3
+clusters_average <- cutree(hcl_average_euclidean, k)
+
+# Visualize the dendrogram with color-coded clusters
+plot(hcl_average_euclidean, 
+     main = "Average Linkage (Euclidean Distance) with 3 Clusters", 
+     xlab = "", 
+     sub = "", 
+     cex = 0.6)
+rect.hclust(hcl_average_euclidean, k = 3, border = 2:5)  # Adds colored rectangles for each cluster to visualise any variation in sizes 
+
+
+```
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------------------------------------------
+
+# Using df_processed for supervsied learning ( Classification )
+
+## We will be using 'Country' as the target variable
+
+## Now, we change 'Country' to a numeric column and rename the dataset to df_newlyprocessed
+```{r}
+df_newlyprocessed <- df_processed %>%
+  mutate(Country = factor(Country, 
+                          levels = c("Australia", "Belgium", "France", "Germany", "Italy", 
+                                     "Netherlands", "Norway", "Portugal", "Spain", "Sweden", 
+                                     "United Kingdom", "United States"),
+                          labels = c("Australia", "Belgium", "France", "Germany", "Italy", 
+                                     "Netherlands", "Norway", "Portugal", "Spain", "Sweden", 
+                                     "UK", "US")))
+```
+
+## Viewing the df_newlyprocessed
+```{r}
+## Checking the structure of the dataset to make sure its ready for classification
+str(df_newlyprocessed)
+```
+
+
+
+## Constructing the k- nearest neighbour (KNN) model 
+```{r}
+install.packages("MLmetrics")
+
+# Load necessary library
+library(caret)
+library(MLmetrics)
+
+# Split the dataset into training and testing sets (80-20 split)
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(df_newlyprocessed$Country, p = 0.8, list = FALSE)
+
+train_data <- df_newlyprocessed[train_index, ]
+test_data <- df_newlyprocessed[-train_index, ]
+
+# Create a control object for training (e.g., 10-fold cross-validation)
+myControl <- trainControl(
+  method = "cv",                   # Cross-validation
+  number = 10,                     # Number of folds
+  classProbs = TRUE,               # Enable probability estimates
+  summaryFunction = multiClassSummary  # Use ROC for evaluation
+)
+
+# Train a KNN model with hyperparameter tuning
+knn_model <- train(
+  Country ~ .,                     # Formula (target ~ predictors)
+  data = train_data,               # Training dataset
+  method = "knn",                  # KNN method
+  metric = "ROC",                  # Optimize based on ROC
+  tuneLength = 20,                 # Number of k values to try
+  trControl = myControl            # Control object
+)
+
+# Print the results
+print(knn_model)
+
+# Plot the results (e.g., ROC or accuracy by number of neighbors)
+plot(knn_model)
+
+
+```
+## Evaluating the KNN model 
+
+### Confusion matrix 
+```{r}
+# Predicting on the test data using KNN
+knn_predictions <- predict(knn_model, newdata = test_data)
+
+# Generating the confusion matrix
+confusionMatrix(knn_predictions, test_data$Country)
+
+
+```
+
+#### Creating a confusion matrix
+```{r}
+# Store the confusion matrix
+cm <- confusionMatrix(knn_predictions, test_data$Country)
+
+# Extract specific values
+true_positive <- cm$table[2,2]  # Extract TP
+true_negative <- cm$table[1,1]  # Extract TN
+false_positive <- cm$table[1,2]  # Extract FP
+false_negative <- cm$table[2,1]  # Extract FN
+
+# Create a summary table if needed
+confusion_summary <- data.frame(
+  Metric = c("True Positive (TP)", "True Negative (TN)", "False Positive (FP)", "False Negative (FN)"),
+  Value = c(true_positive, true_negative, false_positive, false_negative)
+)
+
+print(confusion_summary)
+```
+
+
+### Making the confusion matrix table
+```{r}
+
+# Confusion Matrix Values
+TP <- 80  # True Positives
+TN <- 625  # True Negatives
+FP <- 177  # False Positives
+FN <- 18  # False Negatives
+
+# Accuracy Calculation
+accuracy <- (TP + TN) / (TP + TN + FP + FN)
+
+# Precision Calculation
+precision <- TP / (TP + FP)
+
+# Recall Calculation
+recall <- TP / (TP + FN)
+
+# F1-Score Calculation (Harmonic mean of precision and recall)
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Create a table for the metrics
+metrics_table <- data.frame(
+  Metric = c("Accuracy", "Precision", "Recall", "F1-Score"),
+  Value = c(accuracy, precision, recall, f1_score)
+)
+
+# Print the table
+print(metrics_table)
+
+```
+
+
+
+### ROC AUC
+```{r}
+# Predicting probabilities on the test set
+knn_probabilities <- predict(knn_model, newdata = test_data, type = "prob")
+
+# Actual labels
+true_labels <- test_data$Country
+
+# Compute ROC for each class (using a loop for multi-class)
+library(pROC)
+
+roc_curves <- list()  # Store ROC curves
+for(i in 1:length(levels(true_labels))) {
+  roc_curves[[i]] <- roc(true_labels == levels(true_labels)[i], knn_probabilities[, i])
+}
+
+# Plot the ROC curves
+plot(roc_curves[[1]], col = 1, main = "ROC Curves for Each Class", lwd = 2)  # Plot the first curve
+for(i in 2:length(roc_curves)) {
+  lines(roc_curves[[i]], col = i, lwd = 2)
+}
+
+# Add labels for each ROC curve
+legend("bottomright", 
+       legend = levels(true_labels),  # Class names
+       col = 1:length(levels(true_labels)),  # Matching colors
+       lwd = 2)  # Line width for legend
+
+# Optionally, calculate the AUC for each class
+auc_values <- sapply(roc_curves, function(x) auc(x))
+print(auc_values)
+```
+
+
+
+
+
+## Constructing the Logistic Regression model 
+```{r}
+# Load necessary libraries
+library(caret)
+library(nnet)  # For multinomial logistic regression
+
+# Ensure your 'Country' column is a factor
+df_newlyprocessed$Country <- as.factor(df_newlyprocessed$Country)
+
+# Split the dataset into training and testing sets (80-20 split)
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(df_newlyprocessed$Country, p = 0.8, list = FALSE)
+train_data <- df_newlyprocessed[train_index, ]
+test_data <- df_newlyprocessed[-train_index, ]
+
+# Train a multinomial logistic regression model
+set.seed(123)  # For reproducibility
+log_model <- train(
+  Country ~ .,                     # Formula (target ~ predictors)
+  data = train_data,               # Training dataset
+  method = "multinom",             # Multinomial logistic regression
+  trControl = trainControl(        # Cross-validation
+    method = "cv",                 # Use cross-validation
+    number = 10                    # Number of folds
+  )
+)
+
+# Print the model summary
+print(log_model)
+
+
+```
+
+## Evaulating the logistic regression model 
+
+### ROC AUC 
+```{r}
+# Predicting probabilities on the test set for multinomial logistic regression
+log_probabilities <- predict(log_model, newdata = test_data, type = "prob")
+
+# Actual labels
+true_labels <- test_data$Country
+
+# Compute ROC for each class (using a loop for multi-class)
+library(pROC)
+
+roc_curves <- list()  # Store ROC curves
+for (i in 1:length(levels(true_labels))) {
+  # Create binary response: 1 for the current class, 0 for others
+  binary_response <- as.numeric(true_labels == levels(true_labels)[i])
+  
+  # Compute ROC curve for the current class
+  roc_curves[[i]] <- roc(binary_response, log_probabilities[, i])
+}
+
+# Plot the ROC curves
+plot(roc_curves[[1]], col = 1, main = "ROC Curves for Each Class", legacy.axes = TRUE)  # Plot the first curve
+for (i in 2:length(roc_curves)) {
+  lines(roc_curves[[i]], col = i)
+}
+
+# Add a legend
+legend("bottomright", legend = levels(true_labels), col = 1:length(roc_curves), lwd = 2)
+
+# Calculate and print AUC values for each class
+auc_values <- sapply(roc_curves, function(x) auc(x))
+print(auc_values)
+
+
+```
+
+### Confusion matrix 
+```{r}
+# Predicting on the test data using logistic regression
+log_predictions <- predict(log_model, newdata = test_data)  # Predicted class labels
+
+# Generating the confusion matrix
+conf_matrix <- confusionMatrix(log_predictions, test_data$Country)
+
+# Print the confusion matrix summary
+print(conf_matrix)
+
+
+```
+
+#### Creating a confusion matrix table 
+```{r}
+# Store the confusion matrix
+cm <- confusionMatrix(log_predictions, test_data$Country)
+
+# Extract specific values
+true_positive <- diag(cm$table)  # Diagonal contains TP for each class
+false_positive <- colSums(cm$table) - true_positive  # FP: Column sums - TP
+false_negative <- rowSums(cm$table) - true_positive  # FN: Row sums - TP
+true_negative <- sum(cm$table) - (true_positive + false_positive + false_negative)  # TN: Total - (TP+FP+FN)
+
+# Create a summary table
+confusion_summary <- data.frame(
+  Class = levels(test_data$Country),
+  True_Positive = true_positive,
+  False_Positive = false_positive,
+  False_Negative = false_negative,
+  True_Negative = true_negative
+)
+
+# Print the confusion summary table
+print(confusion_summary)
+
+```
+
+### Displaying thr confusion matrix table (putting the test results into a simple table for visualisation)
+```{r}
+# Load necessary libraries
+library(knitr)
+
+# Create the confusion matrix data
+confusion_data <- data.frame(
+  Class = c("Australia", "Belgium", "France", "Germany", "Italy", "Netherlands", "Norway", "Portugal", "Spain", "Sweden"),
+  True_Positive = c(603, 48, 45, 51, 37, 108, 427, 41, 51, 357),
+  False_Positive = c(175, 744, 759, 743, 732, 683, 360, 750, 728, 441),
+  False_Negative = c(1496, 366, 436, 374, 339, 706, 460, 342, 506, 389),
+  True_Negative = c(7179, 8295, 8213, 8285, 8345, 7956, 8206, 8320, 8168, 8266)
+)
+
+# Function to calculate metrics
+calculate_metrics <- function(tp, fp, fn, tn) {
+  # Accuracy
+  accuracy <- (tp + tn) / (tp + fp + fn + tn)
+  
+  # Precision
+  precision <- tp / (tp + fp)
+  
+  # Recall
+  recall <- tp / (tp + fn)
+  
+  # F1 Score
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  
+ 
+  
+  # Return the metrics as a list
+  return(c(accuracy, precision, recall, f1_score))
+}
+
+# Apply the function to each row (country) in the confusion_data
+metrics <- t(apply(confusion_data[, 2:5], 1, function(row) calculate_metrics(row[1], row[2], row[3], row[4])))
+
+# Convert the result into a data frame
+metrics_df <- data.frame(metrics)
+colnames(metrics_df) <- c("Accuracy", "Precision", "Recall", "F1_Score")
+
+# Add country names to the metrics data frame
+metrics_df$Country <- confusion_data$Class
+
+# Print the metrics table using knitr
+kable(metrics_df, caption = "Confusion Matrix Metrics for Each Country", format = "markdown")
+
+```
+---------------------------------------------------------------------------------------------------------------
+
+# Preparing dataset #2 (dfuk) for our predictive models 
+
+
+```{r}
+# Check the structure and summary of dfuk 
+str(dfuk)
+summary(dfuk)
+
+# Get column names as a vector
+names(dfuk)
+
+# Check for missing values in dfuk
+colSums(is.na(dfuk))
+```
+
+## Next we clean dfuk 
+```{r}
+# Clean the dfuk dataset by removing unnecessary variables
+dfuk_cleaned <- dfuk %>%
+  select(-c(asin, title, imgUrl, productURL)) %>%  # Remove irrelevant columns
+  drop_na()  # Drop rows with NA values
+
+# Check the cleaned dataset
+head(dfuk_cleaned)
+```
+
+
+
+
+
+## We view all the unique categoryNames in dfuk_cleaned
+```{r}
+unique_category_names <- unique(dfuk_cleaned$categoryName)
+
+# Display the unique category names
+print(unique_category_names)
+
+# Count the number of unique category names
+num_unique_category_names <- length(unique(dfuk_cleaned$categoryName))
+
+# Display the count
+print(num_unique_category_names)
+
+```
+
+
+
+## Viewing the unique category names of dfonline_sales_cleaned, using them as a standarisation to group the categoryNames into different and more board subcategories for ease of prediction
+```{r}
+category_names <- unique(dfonline_sales_cleaned$Category)
+
+# Display the unique category names
+print(category_names)
+
+```
+
+
+## Viewing the total frequency of each unique values to determine how which unique values have sufficient values to be mapped to the subcategories displayed just previously. 
+```{r}
+# Count the frequency of each unique values in categoryName
+category_counts <- table(dfuk_cleaned$categoryName)
+
+# Sort the counts in decreasing order
+sorted_category_counts <- sort(category_counts, decreasing = TRUE)
+
+# Display the sorted counts
+sorted_category_counts
+
+```
+
+
+## Mapping selected names in categoryName in dfuk_cleaned to match the names in dataset#1 
+```{r}
+ # Create the mapping for the selected subcategories to broader categories
+  category_map <- c(
+  "Cables & Accessories" = "Electronics",
+  "Camera & Photo Accessories" = "Electronics",
+  "Garden Furniture & Accessories" = "Furniture",
+  "Patio Furniture" = "Furniture",
+  "Handmade Clothing, Shoes & Accessories" = "Apparel",
+  "Basketball Footwear" = "Apparel",
+  "Dolls & Accessories" = "Accessories",
+  "Fireplaces, Stoves & Accessories" = "Accessories",
+  "Calendars & Personal Organisers" = "Stationery",
+  "Gifts for Her" = "Stationery"
+)
+### We chose the no.1 and no.3 highest counts for each category to shrink down the dataset but make sure the numbers are big enough for reliable prediction
+
+# Create a copy of dfuk_cleaned to modify
+dfuk_modified <- dfuk_cleaned
+
+# Apply the category mapping to dfuk_modified
+dfuk_modified$categoryName <- recode(dfuk_modified$categoryName, !!!category_map)
+
+# Filter out the rows that belong to the selected broader categories (keys of category_map)
+dfuk_modified <- dfuk_modified[dfuk_modified$categoryName %in% c("Electronics", "Apparel", "Furniture", "Stationery", "Accessories"), ]
+
+# Check the updated category names
+table(dfuk_modified$categoryName)
+print(sum(dfuk_modified$categoryName == "Accessories"))
+
+
+```
+
+
+## Changing the price column from pounds to usd for consistency with dataset #1
+```{r}
+# Assuming 1 GBP = 1.25 USD (you can change this rate if necessary)
+exchange_rate <- 1.25
+
+# Convert the price from pounds to USD
+dfuk_modified$price_usd <- dfuk_modified$price * exchange_rate
+
+# Check the updated data
+head(dfuk_modified$price_usd)
+
+```
+
+## Checking for NaN values before Exploratory Data Analysis (EDA)
+```{r}
+# Check for NA values in the entire dataframe
+na_summary <- colSums(is.na(dfuk_modified))
+
+# Print the summary of NA values per column
+na_summary
+```
+
+
+# dfuk_modified EDA
+
+## Viewing the summary statistic table (median, max, min etc )
+```{r}
+# Remove the orignial price column from the dfuk dataset 
+dfuk_modified <- dfuk_modified %>%
+  select(-c(price)) %>%  # Remove the non-converted price columns
+  drop_na()
+
+# Check structure of the dataset
+str(dfuk_modified)
+
+# Summary statistics of the dataset
+summary(dfuk_modified)
+
+```
+
+
+## Pie chart for isBestSeller
+```{r}
+# Create a table of isBestSeller counts
+isBestSeller_count <- table(dfuk_modified$isBestSeller)
+
+# Convert to a data frame for ggplot
+isBestSeller_df <- as.data.frame(isBestSeller_count)
+
+# Add percentage labels
+isBestSeller_df$percentage <- round(isBestSeller_df$Freq / sum(isBestSeller_df$Freq) * 100, 1)
+
+# Plot the pie chart with percentages
+ggplot(isBestSeller_df, aes(x = "", y = Freq, fill = factor(isBestSeller_df$Var1))) +
+  geom_bar(stat = "identity", width = 1, color = "grey28") +
+  coord_polar(theta = "y") +
+  theme_void() +
+  labs(title = "Distribution of Best Seller Status",
+       fill = "Best Seller Status") +
+  scale_fill_manual(values = c("skyblue", "lightsalmon")) +
+  geom_text(aes(label = paste(percentage, "%")), position = position_stack(vjust = 0.5))
+
+```
+
+
+## Bar graph for the subcategories in categoryName
+```{r}
+ggplot(dfuk_modified, aes(x = categoryName)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = " Subcategories Distribution", x = "Subcategories", y = "Frequency")
+
+```
+
+
+## Boxplot of stars by their subcategories
+```{r}
+ggplot(dfuk_modified, aes(x = categoryName, y = stars)) +
+  geom_boxplot(fill = "steelblue", color = "black") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Stars Distribution by subcategory", x = "subcategory", y = "Stars")
+
+```
+
+
+
+## Heat map for numeric variables
+```{r}
+install.packages("ggplot2")
+install.packages("reshape2")
+install.packages("RColorBrewer")
+
+library(ggplot2)
+library(reshape2)
+library(RColorBrewer)
+```
+
+```{r}
+# Calculate correlation matrix for numeric columns
+cor_matrix <- cor(dfuk_modified[, c("price_usd", "reviews", "stars", "boughtInLastMonth")], use = "complete.obs")
+
+# Melt the correlation matrix for ggplot
+cor_matrix_melted <- melt(cor_matrix)
+
+# Plot the heatmap with correlation numbers
+ggplot(cor_matrix_melted, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "red", high = "seagreen", mid = "salmon", midpoint = 0, limit = c(-1, 1), name="Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        axis.text.y = element_text(hjust = 1)) +  # Fix axis text alignment
+  labs(title = "Correlation Heatmap of Numeric Variables", x = "Variables", y = "Variables") +
+  # Add text labels for correlation values with proper adjustment for readability
+  geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4, fontface = "bold")
+```
+
+
+
+
+
+
+## Cleaning the dfuk_modified data again 
+
+### Removing isBestSeller columns as they are irrelevant for this model
+```{r}
+# Remove the 'isBestSeller' columns from dfuk_modified
+dfuk_modified_cleaned <- dfuk_modified %>%
+  select(-isBestSeller)
+```
+
+
+### Removing outliers from the stars column using the boxplot of stars and subcategories done previously as reference
+```{r}
+# Remove rows where stars are between 0 and 1 for 'Electronics' only
+dfuk_modified_cleaned <- dfuk_modified_cleaned %>%
+  filter(!(categoryName == "Electronics" & stars >= 0 & stars <= 2)) %>%
+  filter(!(categoryName == "Furniture" & stars >= 0 & stars <= 1.5))
+```
+
+### Removing the stationary column from as its frequency is negligible compared to the other subcategories 
+```{r}
+# Remove rows where categoryName is "Stationery"
+dfuk_modified_cleaned <- dfuk_modified_cleaned %>%
+  filter(categoryName != "Stationery")
+```
+
+### An overview of the dfuk_modified_cleaned dataset
+```{r}
+# Check structure of the dataset
+str(dfuk_modified_cleaned)
+
+# Summary statistics of the dataset
+summary(dfuk_modified_cleaned)
+```
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------
+
+
+
+# Using dfuk_ modified_cleaned for supervised learning (Regression)
+
+## Checking for NaN values and encode categoryName
+```{r}
+sum(is.na(dfuk_modified_cleaned))
+
+# One-hot encode the 'categoryName' variable using model.matrix
+dfuk_modified_cleaned <- cbind(dfuk_modified_cleaned, 
+                               model.matrix(~ categoryName - 1, data = dfuk_modified_cleaned))
+
+```
+## Viewing the dfuk_modified_cleaned for checking 
+```{r}
+# Check structure of the dataset before Regression
+str(dfuk_modified_cleaned)
+
+```
+
+## Constructing the linear regression model 
+```{r}
+# Load the necessary libraries
+library(mlr3)
+library(mlr3learners)
+library(ggplot2)
+
+# Assuming dfuk_modified_cleaned is your dataset and "stars" is your target variable
+task <- TaskRegr$new(id = "stars_regression", backend = dfuk_modified_cleaned, target = "stars")
+
+# Define the performance measure
+measure <- msr("regr.mse")
+
+# Choose the learner for Linear Regression
+learner_lm <- lrn("regr.lm")
+
+# Set a seed for reproducibility
+set.seed(2)
+
+# Split the data into training and test sets (70/30 split)
+train_set <- sample(task$row_ids, size = 0.7 * length(task$row_ids))
+test_set <- setdiff(task$row_ids, train_set)
+
+# Create new tasks for train and test data
+task_train <- task$clone()
+task_train$filter(rows = train_set)
+
+task_test <- task$clone()
+task_test$filter(rows = test_set)
+
+# Train the model using the training data
+learner_lm$train(task_train)
+
+# Predict the target variable on the test data
+predictions <- learner_lm$predict(task_test)
+
+# Print the predictions
+print(predictions)
+
+# Access predicted values and true values from task_test
+predicted_values <- as.numeric(as.character(predictions$response))
+true_values <- as.numeric(as.character(task_test$truth()))
+
+# Check if both are numeric
+print(is.numeric(predicted_values))
+print(is.numeric(true_values))
+
+# Calculate residuals
+residuals <- predicted_values - true_values
+fitted_values <- predicted_values
+
+# Plot Residuals vs Fitted with a best-fit line
+ggplot(data = data.frame(fitted = fitted_values, residuals = residuals), aes(x = fitted, y = residuals)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "lm", se = FALSE, color = "black") + # Add best-fit line
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals") +
+  theme_minimal()
+
+# Calculate performance metrics (MSE and R-squared)
+measure_mse <- msr("regr.mse")
+measure_rsq <- msr("regr.rsq")
+
+# MSE and R-squared for the model
+mse <- measure_mse$score(predictions)
+rsq <- measure_rsq$score(predictions)
+
+# Print the results
+cat("Mean Squared Error: ", mse, "\n")
+cat("R-squared: ", rsq, "\n")
+
+```
+
+
+
+
+### Extra graph for visualisation 
+```{r}
+# Q-Q plot for residuals
+ggplot(data = data.frame(residuals = residuals), aes(sample = residuals)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot for Residuals", 
+       x = "Theoretical Quantiles", 
+       y = "Observed Quantiles") +
+  theme_minimal()
+```
+
+
+### Getting the linear regression informations 
+```{r}
+# Fit a linear regression model using lm() function
+lm_model <- lm(stars ~ reviews + price_usd + boughtInLastMonth + categoryName, data = dfuk_modified_cleaned)
+
+# Print the summary of the model to see coefficients and other values
+summary(lm_model)
+
+```
+
+
+
+## Constructing the lasso,  ridge and elastic net models 
+
+
+### Install and/or load necessary packages 
+```{r}
+install.packages("glmnet")
+library(glmnet)
+```
+
+
+### Preparing the data for regularisation 
+```{r}
+# Prepare the data
+X_train <- as.matrix(dfuk_modified_cleaned[train_set, c("reviews", "price_usd", "boughtInLastMonth")])
+y_train <- dfuk_modified_cleaned$stars[train_set]
+
+X_test <- as.matrix(dfuk_modified_cleaned[test_set, c("reviews", "price_usd", "boughtInLastMonth")])
+y_test <- dfuk_modified_cleaned$stars[test_set]
+```
+
+
+### Lasso model (L1)
+```{r}
+# Fit Lasso model
+lasso_model <- glmnet(X_train, y_train, alpha = 1)
+
+# Get the coefficients for the Lasso model
+print(coef(lasso_model))
+
+# Make predictions
+lasso_pred <- predict(lasso_model, X_test, s = 0.1)  # s is the regularization parameter
+```
+
+
+### Ridge model (L2)
+```{r}
+# Fit Ridge model
+ridge_model <- glmnet(X_train, y_train, alpha = 0)
+
+# Get the coefficients for the Ridge model
+print(coef(ridge_model))
+
+# Make predictions
+ridge_pred <- predict(ridge_model, X_test, s = 0.1)
+
+```
+
+
+
+### Elastic net model (Combination of L1 and L2)
+```{r}
+
+# Fit Elastic Net model (alpha between 0 and 1, here alpha = 0.5 means equal mix of L1 and L2)
+elastic_net_model <- glmnet(X_train, y_train, alpha = 0.5)
+
+# Get the coefficients for the Elastic Net model
+print(coef(elastic_net_model))
+
+# Make predictions
+elastic_net_pred <- predict(elastic_net_model, X_test, s = 0.1)
+```
+
+
+### Evaulating the 3 models 
+```{r}
+# Mean Squared Error (MSE)
+lasso_mse <- mean((lasso_pred - y_test)^2)
+ridge_mse <- mean((ridge_pred - y_test)^2)
+elastic_net_mse <- mean((elastic_net_pred - y_test)^2)
+
+# R-squared
+lasso_rsq <- 1 - (sum((lasso_pred - y_test)^2) / sum((y_test - mean(y_test))^2))
+ridge_rsq <- 1 - (sum((ridge_pred - y_test)^2) / sum((y_test - mean(y_test))^2))
+elastic_net_rsq <- 1 - (sum((elastic_net_pred - y_test)^2) / sum((y_test - mean(y_test))^2))
+
+# Print MSE and R-squared
+cat("Lasso MSE:", lasso_mse, "R-squared:", lasso_rsq, "\n")
+cat("Ridge MSE:", ridge_mse, "R-squared:", ridge_rsq, "\n")
+cat("Elastic Net MSE:", elastic_net_mse, "R-squared:", elastic_net_rsq, "\n")
+
+# Calculate RMSE
+
+# Use the measure "regr.rmse" to compute RMSE directly from the predictions object
+rmse_measure <- msr("regr.rmse")
+
+# Calculate RMSE using the score function on the predictions object
+rmse <- rmse_measure$score(predictions)
+
+cat("RMSE: ", rmse, "\n")
+
+
+```
+
+
+
+### Visualising the 3 models 
+```{r}
+
+# Coefficient path for Lasso model
+plot(lasso_model, xvar = "lambda", label = TRUE, main = "Lasso Coefficients Path")
+
+# Coefficient path for Ridge model
+plot(ridge_model, xvar = "lambda", label = TRUE, main = "Ridge Coefficients Path")
+
+# Coefficient path for Elastic Net model
+plot(elastic_net_model, xvar = "lambda", label = TRUE, main = "Elastic Net Coefficients Path")
+
+```
+
+
+## Constructing the random forest 
+
+
+```{r}
+# Load required libraries
+install.packages("ranger")
+
+library(caret)
+library(ranger) # Random Forest implementation
+
+# Set a random seed for reproducibility
+set.seed(42)
+
+# Train Random Forest model using default settings
+rf_model <- train(stars ~ reviews + boughtInLastMonth + price_usd + 
+                  categoryNameAccessories + categoryNameApparel + 
+                  categoryNameElectronics + categoryNameFurniture, 
+                  data = dfuk_modified_cleaned, 
+                  method = "ranger", 
+                  trControl = trainControl(method = "cv", number = 5))
+# Print model details
+print(rf_model)
+
+# Plot model performance
+plot(rf_model)
+
+```
+
+
+
+
+### Random forest with training and testing data and with RMSE calculations 
+```{r}
+set.seed(42) # Ensure reproducibility
+
+# Split the data into 80% training and 20% testing
+train_index <- createDataPartition(dfuk_modified_cleaned$stars, p = 0.8, list = FALSE)
+
+dfuk_modified_train <- dfuk_modified_cleaned[train_index, ]
+dfuk_modified_test <- dfuk_modified_cleaned[-train_index, ]
+
+# Train Random Forest model
+rf_model <- train(stars ~ reviews + boughtInLastMonth + price_usd + 
+                  categoryNameAccessories + categoryNameApparel + 
+                  categoryNameElectronics + categoryNameFurniture, 
+                  data = dfuk_modified_train, 
+                  method = "ranger", 
+                  trControl = trainControl(method = "cv", number = 5))
+# Generate predictions on the test dataset
+rf_predictions <- predict(rf_model, newdata = dfuk_modified_test)
+
+# Calculate RMSE
+rf_rmse <- sqrt(mean((rf_predictions - dfuk_modified_test$stars)^2))
+
+# Print RMSE
+print(paste("RMSE for Random Forest:", round(rf_rmse, 4)))
+
+
+```
+
+
+
+### Plotting an Actual vs Predicted graph to see how well the prediction was 
+```{r}
+# Create a data frame with actual and predicted values
+rf_results <- data.frame(Actual = dfuk_modified_test$stars, 
+                         Predicted = rf_predictions)
+
+# Plot actual vs. predicted values
+library(ggplot2)
+ggplot(rf_results, aes(x = Actual, y = Predicted)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  labs(title = "Random Forest: Actual vs Predicted",
+       x = "Actual Stars",
+       y = "Predicted Stars") +
+  theme_minimal()
+
+
+```
+
+
+
+### Plotting the Residuals vs Fitted (Actual) graph
+```{r}
+# Calculate residuals
+rf_residuals <- dfuk_modified_test$stars - rf_predictions
+
+# Create a residuals vs. fitted values plot
+ggplot(data.frame(Fitted = rf_predictions, Residuals = rf_residuals), 
+       aes(x = Fitted, y = Residuals)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Random Forest: Residuals vs Fitted Values",
+       x = "Fitted Values (Predictions)",
+       y = "Residuals") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
