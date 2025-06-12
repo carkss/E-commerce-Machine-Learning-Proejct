@@ -10,7 +10,7 @@ The main goals are:
 All tasks aim to uncover consumer patterns, improve product insights, and enhance market targeting using various machine learning methods. While most importantly, developing familiarity with the full pipeline of building predictive models and  understanding what defines a good prediction through model evaluation.
 This project contains extensive data wrangling and cleaning and implementation of various prediction algorithms for each techniques in only R. 
 
-### NOTE: THE FOLLOWING OVERVIEW IS A BRIEF SUMMARY. FOR DETAILED DATA WRANGLING STEPS, REFER TO THE R CODE FILE. FOR A MORE STRUCTURED AND CONCISE EXPLANATION OF THE METHODOLOGY AND FINDINGS, PLEASE SEE THE WORD REPORT.
+ NOTE: THE FOLLOWING OVERVIEW IS A BRIEF SUMMARY. FOR DETAILED DATA WRANGLING STEPS, REFER TO THE R CODE FILE. FOR A MORE STRUCTURED AND CONCISE EXPLANATION OF THE METHODOLOGY AND FINDINGS, PLEASE SEE THE WORD REPORT.
 
 ## Overview of data wrangling steps: 
 
